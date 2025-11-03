@@ -1,0 +1,58 @@
+pipeline {
+    agent any
+    
+    environment {
+        DOCKER_REGISTRY = 'your-registry'
+        DOCKER_IMAGE = 'demo-app'
+        DOCKER_TAG = "${params.BUILD_NUMBER}"
+        HELM_RELEASE = 'demo-app'
+        NAMESPACE = 'demo'
+    }
+    
+    stages {
+        stage('Pull Docker Image') {
+            steps {
+                script {
+                    docker.withRegistry('https://${DOCKER_REGISTRY}', 'docker-credentials') {
+                        docker.image("${DOCKER_REGISTRY}/${DOCKER_IMAGE}:${DOCKER_TAG}").pull()
+                    }
+                }
+            }
+        }
+        
+        stage('Deploy to Test') {
+            steps {
+                script {
+                    sh """
+                        helm upgrade --install ${HELM_RELEASE} ./helm/demo-app \
+                        --namespace ${NAMESPACE} \
+                        --set image.repository=${DOCKER_REGISTRY}/${DOCKER_IMAGE} \
+                        --set image.tag=${DOCKER_TAG} \
+                        --wait --timeout 5m
+                    """
+                }
+            }
+        }
+        
+        stage('Post-Deployment Tests') {
+            steps {
+                script {
+                    sh """
+                        # Wait for the application to be ready
+                        kubectl wait --for=condition=ready pod -l app=demo-app -n ${NAMESPACE} --timeout=300s
+                        
+                        # Run integration tests
+                        # Add your integration test commands here
+                    """
+                }
+            }
+        }
+    }
+    
+    post {
+        failure {
+            // Rollback on failure
+            sh "helm rollback ${HELM_RELEASE} -n ${NAMESPACE}"
+        }
+    }
+}
