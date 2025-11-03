@@ -131,7 +131,3 @@ helm install demo-app ./helm/demo-app
    - Document all configuration
    - Use version control for Helm charts
    - Implement monitoring and logging
-
-דברים שלמדתי:
-מה זה קובץ jar
-מה זה pom.xml
