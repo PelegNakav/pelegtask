@@ -1,58 +1,94 @@
 pipeline {
     agent any
-    
+
+    parameters {
+        string(name: 'BUILD_NUMBER', defaultValue: '17', description: 'Optional: CI build number to deploy (if empty, uses current build number)')
+    }
+
     environment {
-        DOCKER_REGISTRY = 'your-registry'
-        DOCKER_IMAGE = 'demo-app'
-        DOCKER_TAG = "${params.BUILD_NUMBER}"
+        DOCKER_IMAGE = 'pelegnakav/pelegtest'
+        DOCKER_TAG = "${params.BUILD_NUMBER}" // expected to match the tag pushed by CI
         HELM_RELEASE = 'demo-app'
         NAMESPACE = 'demo'
     }
-    
+
     stages {
+        stage('Resolve Tag') {
+            steps {
+                script {
+                    if (!env.DOCKER_TAG) {
+                        env.DOCKER_TAG = env.BUILD_NUMBER ?: 'latest'
+                    }
+                    echo "Using image: ${DOCKER_IMAGE}:${DOCKER_TAG}"
+                }
+            }
+        }
+
         stage('Pull Docker Image') {
             steps {
                 script {
-                    docker.withRegistry('https://${DOCKER_REGISTRY}', 'docker-credentials') {
-                        docker.image("${DOCKER_REGISTRY}/${DOCKER_IMAGE}:${DOCKER_TAG}").pull()
+                    // Use Jenkins-stored Docker Hub credentials (id: docker-hub-creds)
+                    docker.withRegistry('', 'docker-hub-creds') {
+                        docker.image("${DOCKER_IMAGE}:${DOCKER_TAG}").pull()
                     }
                 }
             }
         }
-        
+
         stage('Deploy to Test') {
             steps {
                 script {
                     sh """
                         helm upgrade --install ${HELM_RELEASE} ./helm/demo-app \
-                        --namespace ${NAMESPACE} \
-                        --set image.repository=${DOCKER_REGISTRY}/${DOCKER_IMAGE} \
-                        --set image.tag=${DOCKER_TAG} \
-                        --wait --timeout 5m
+                          --namespace ${NAMESPACE} \
+                          --create-namespace \
+                          --set image.repository=${DOCKER_IMAGE} \
+                          --set image.tag=${DOCKER_TAG} \
+                          --wait --timeout 5m
                     """
                 }
             }
         }
-        
+
         stage('Post-Deployment Tests') {
             steps {
                 script {
                     sh """
-                        # Wait for the application to be ready
-                        kubectl wait --for=condition=ready pod -l app=demo-app -n ${NAMESPACE} --timeout=300s
-                        
-                        # Run integration tests
-                        # Add your integration test commands here
+                        set -e
+                        echo 'Waiting for deployment to become available...'
+                        kubectl rollout status deployment/${HELM_RELEASE} -n ${NAMESPACE} --timeout=300s
+
+                        echo 'Starting port-forward to access service locally...'
+                        kubectl port-forward svc/${HELM_RELEASE} 8080:8080 -n ${NAMESPACE} > /tmp/portforward.log 2>&1 &
+                        PF_PID=$!
+                        sleep 3
+
+                        echo 'Running HTTP smoke test against /'
+                        if curl -sS http://127.0.0.1:8080/ | grep -q 'Hello'; then
+                            echo 'Smoke test passed.'
+                        else
+                            echo 'Smoke test failed: unexpected response' >&2
+                            cat /tmp/portforward.log || true
+                            kill $PF_PID || true
+                            exit 1
+                        fi
+
+                        kill $PF_PID || true
                     """
                 }
             }
         }
     }
-    
+
     post {
+        success {
+            echo "CD pipeline completed: ${DOCKER_IMAGE}:${DOCKER_TAG} deployed to ${NAMESPACE}/${HELM_RELEASE}"
+        }
         failure {
-            // Rollback on failure
-            sh "helm rollback ${HELM_RELEASE} -n ${NAMESPACE}"
+            echo 'Deployment failed, attempting rollback...'
+            script {
+                sh "helm rollback ${HELM_RELEASE} -n ${NAMESPACE} || true"
+            }
         }
     }
 }
