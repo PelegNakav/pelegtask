@@ -1,17 +1,14 @@
-# Default values for demo-app
-replicaCount: 1
-
 image:
-  repository: your-registry/demo-app
-  tag: latest
+  repository: pelegnakav/pelegtest
+  tag: 17
   pullPolicy: IfNotPresent
 
 service:
-  type: ClusterIP
-  port: 8080
-
-ingress:
-  enabled: false
+  type: NodePort
+  port: 8080        # container port
+  nodePort: 30080   # port on your Minikube host
+  
+replicaCount: 1
 
 resources:
   limits:
@@ -26,3 +23,4 @@ nodeSelector: {}
 tolerations: []
 
 affinity: {}
+  
