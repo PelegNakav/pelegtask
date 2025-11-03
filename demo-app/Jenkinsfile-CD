@@ -60,7 +60,7 @@ pipeline {
 
                         echo 'Starting port-forward to access service locally...'
                         kubectl port-forward svc/${HELM_RELEASE} 8080:8080 -n ${NAMESPACE} > /tmp/portforward.log 2>&1 &
-                        PF_PID=$!
+                        PF_PID=\$!
                         sleep 3
 
                         echo 'Running HTTP smoke test against /'
@@ -69,11 +69,11 @@ pipeline {
                         else
                             echo 'Smoke test failed: unexpected response' >&2
                             cat /tmp/portforward.log || true
-                            kill $PF_PID || true
+                            kill \$PF_PID || true
                             exit 1
                         fi
 
-                        kill $PF_PID || true
+                        kill \$PF_PID || true
                     """
                 }
             }
