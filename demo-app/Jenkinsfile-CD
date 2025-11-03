@@ -41,7 +41,7 @@ pipeline {
                 echo "Running health check on http://localhost:${TEST_PORT} ..."
                 sh '''
                     sleep 5
-                    if curl -f http://localhost:${TEST_PORT}; then
+                    if curl -f http://host.docker.internal:${TEST_PORT}; then
                         echo "Health check passed!"
                     else
                         echo "Health check failed!"
